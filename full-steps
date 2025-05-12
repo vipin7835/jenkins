@@ -1,0 +1,114 @@
+--------------Installation of Java 17+version------------------
+java --version
+sudo apt install openjdk-21-jre-headless
+
+----------------Installation of jenkins------------------
+wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key |sudo gpg --dearmor -o /usr/share/keyrings/jenkins.gpg
+sudo sh -c 'echo deb [signed-by=/usr/share/keyrings/jenkins.gpg] http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
+sudo apt update
+sudo apt install jenkins
+sudo systemctl start jenkins.service
+sudo systemctl status jenkins
+
+----After the installation and jenkins.service is running------------
+chrome  (server PublicIP:8080)
+
+--------- On Server for first time password----------
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+>>> Paste the credential to the jenkins
+>>> Install suggested plugins
+>>> Create first admin user 
+(username = jenkins2)
+(Password = Vipin1234)
+
+-----------Now in jenkins---------------
+Install some plugins like :- Git plugin, SSH Agent plugin(For deploying via SSH)
+Steps:-
+Dashboard > Manage Jenkins > Plugins > Available plugins > search git push, ssh agent and install
+Now set up credential for the ssh and github
+Steps:-
+For git cred:
+Dashboard > Manage Jenkins > credentials > Domain (Global) > Add Credentials > Kind (Username with password) > Username (git username :- vipin7835) > password (git password) > id (git_credential) 
+For SSH cred:
+Dashboard > Manage Jenkins > credentials > Domain (Global) > Add Credentials > Kind (SSH Username with private key) > ID (ssh_ubuntu_server) > Username (ubuntu) > Private Key-Enter directly (Paste here pem key)
+
+--------------Install Apache---------------
+sudo apt install apache2
+sudo systemctl start apache2
+sudo systemctl status apache2
+sudo vi /etc/apache2/sites-available/000-default.conf
+-change the path where the code will putted
+
+-------------create the directory for project--------------------
+sudo mkdir /var/www/html/inance
+ls -ld /var/www/html/inance
+sudo chown -R ubuntu:ubuntu /var/www/html/inance
+sudo chmod -R 777 /var/www/html/inance
+
+----------Now create the key pair for jenkins ssh-------------------
+sudo -u jenkins ssh-keygen -t rsa -b 4096 -C "your_email@example.com" --Save it to the default location (/var/lib/jenkins/.ssh/id_rsa)
+sudo chmod 600 /var/lib/jenkins/.ssh/id_rsa
+sudo chown -R jenkins:jenkins /var/lib/jenkins/.ssh
+sudo chmod 700 /var/lib/jenkins/.ssh
+sudo cat /var/lib/jenkins/.ssh/id_rsa.pub
+sudo vi .ssh/authorized_keys --Paste the id_rsa.pub
+sudo -u jenkins ssh -i /var/lib/jenkins/.ssh/id_rsa ubuntu@<your_server_ip_or_hostname> -- To check the connection with jenkins manually
+
+-------------Now create new item in jenkins----------------------------
+select item type (pipeline)
+Triggers (Poll SCM)- H/5 * * * *
+
+-------Pipeline script for static webpage-------------
+
+pipeline {
+    agent any
+
+    environment {
+        GITHUB_CREDENTIALS = 'git_credential'
+        SSH_CREDENTIALS = 'ssh_ubuntu_server'
+        REMOTE_SERVER = 'ubuntu@35.175.235.67'
+        REMOTE_DIR = '/var/www/html/inance'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                // Clone the repository from GitHub
+                git credentialsId: GITHUB_CREDENTIALS, url: 'https://github.com/vipin7835/inance.git'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                // Optional: If you need to build your application (e.g., npm install, etc.)
+                sh 'echo "Building the application..."'
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                sshagent (credentials: [SSH_CREDENTIALS]) {
+                    // Create the target directory on the remote server
+                    sh "ssh -o StrictHostKeyChecking=no ${REMOTE_SERVER} 'mkdir -p ${REMOTE_DIR}'"
+                    
+                    // Copy files to the remote server
+                    sh "scp -o StrictHostKeyChecking=no -r ./* ${REMOTE_SERVER}:${REMOTE_DIR}"
+                    
+                    // Restart Apache to apply changes
+                    sh "ssh -o StrictHostKeyChecking=no ${REMOTE_SERVER} 'sudo systemctl restart apache2'"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment was successful!'
+        }
+        failure {
+            echo 'Deployment failed.'
+        }
+    }
+}
+
+
