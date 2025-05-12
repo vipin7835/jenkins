@@ -1,0 +1,71 @@
+pipeline {
+    agent any
+
+    environment {
+        GITHUB_CREDENTIALS = 'git_credential'
+        SSH_CREDENTIALS = 'ssh_ubuntu_server'
+        REMOTE_SERVER = 'ubuntu@3.92.198.160' // Update with your server IP
+        REMOTE_DIR = '/var/www/html/movix'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git credentialsId: GITHUB_CREDENTIALS, url: 'https://github.com/vipin7835/Movix.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+                    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+                    nvm install 16
+                    nvm use 16
+                    npm install
+                '''
+            }
+        }
+
+        stage('Verify Installation') {
+            steps {
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+                    node -v
+                    npm -v
+                '''
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+                    npm run build
+                '''
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                sshagent (credentials: [SSH_CREDENTIALS]) {
+                    sh "ssh -o StrictHostKeyChecking=no ${REMOTE_SERVER} 'mkdir -p ${REMOTE_DIR}'"
+                    sh "scp -o StrictHostKeyChecking=no -r dist/* ${REMOTE_SERVER}:${REMOTE_DIR}"
+                    sh "ssh -o StrictHostKeyChecking=no ${REMOTE_SERVER} 'sudo systemctl restart apache2'"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment was successful!'
+        }
+        failure {
+            echo 'Deployment failed.'
+        }
+    }
+}
